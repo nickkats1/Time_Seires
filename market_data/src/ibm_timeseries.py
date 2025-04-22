@@ -6,11 +6,15 @@ from sklearn.model_selection import cross_val_score,train_test_split
 from sklearn.metrics import r2_score,mean_squared_error
 import numpy as np
 from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.api import seasonal_decompose
+from statsmodels.tsa.api import seasonal_decompose,ARIMA
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import GradientBoostingRegressor
 from xgboost import XGBRegressor
+
+
+
+
 
 plt.style.use('fivethirtyeight')
 
@@ -20,13 +24,17 @@ plt.style.use('fivethirtyeight')
 IBM = yf.download(tickers="IBM",start="1990-01-01",end="2025-04-20")['Close']
 IBM = IBM.reset_index()
 
-df = IBM.reset_index()
+
 df = IBM[['Date','IBM']]
 
-df['IBM']
+
 df['Date'] = pd.to_datetime(df['Date'])
 
 df = df.set_index('Date')
+
+
+
+
 
 df.isnull().sum()
 df.duplicated().sum()
@@ -41,6 +49,7 @@ plt.show()
 
 """Copying 'df' to show the index for each time period"""
 
+
 df1 = df.copy()
 
 def create_values(df1):
@@ -54,6 +63,8 @@ def create_values(df1):
     return df1
     
 df1 = create_values(df1)
+    
+
 
 
 plt.figure(figsize=(10,6))
@@ -85,7 +96,7 @@ plt.show()
 
 
 
-decomp = seasonal_decompose(df['IBM'],model="additive",period=365)
+decomp = seasonal_decompose(df['IBM'],model="additive",period=30)
 decomp.plot().show()
 
 
@@ -112,7 +123,25 @@ def test_stationary(timeseries):
     
     
 test_stationary(df)
-        
+
+""" df_log first"""
+
+
+df_log = np.log(df)
+
+plt.figure(figsize=(10,6))
+plt.plot(df,label="original")
+plt.plot(df_log,label="Original With No Variance")
+plt.legend()
+plt.show()
+
+"""testing stationary of df_log"""
+
+df_log.dropna(inplace=True)
+test_stationary(df_log)
+
+
+
 
 """ Need the p-value to be lower to be stationary First-order Differncing"""
 df_diff = df.diff(periods=1)
@@ -128,38 +157,127 @@ df_diff.dropna(inplace=True)
 
 test_stationary(df_diff)
 
-""" Just checking values with no variance to be safe"""
 
 
-df_log=  np.log(df)
+"""Ok, I made a mistake because I did this in a hour this morning(look and the end date),
+I need to test more if this truly is stationary"""
 
+df_diff2 = df_diff.diff(periods=1)
 
 
 plt.figure(figsize=(10,6))
-plt.plot(df,color="red",label="Original")
-plt.plot(df_diff,color="blue",label="Original with Differencing")
-plt.plot(df_log,color="green",label="TimeSeries With No Variance")
+plt.plot(df,label="original")
+plt.plot(df_diff,label="First Order Diff")
+plt.plot(df_diff2,label="second order diff")
 plt.legend()
 plt.show()
 
-df_log.dropna(inplace=True)
-test_stationary(df_log)
-""" df differencing weighted average"""
 
-df_diff_weighted_avg = df_diff.ewm(halflife=12).mean()
+
+df_diff2.dropna(inplace=True)
+test_stationary(df_diff2)
+
+
+""" ok, a couple of more tests to make sure"""
+
+df_log_diff = np.log(df_diff)
+
 plt.figure(figsize=(10,6))
-plt.plot(df_diff,label="TimeSeries With Differencing")
-plt.plot(df_diff_weighted_avg,label="Weighted Average First-Order Diff")
+plt.plot(df,label="original")
+plt.plot(df_diff,label="First Order Diff")
+plt.plot(df_diff2,label="second order diff")
+plt.plot(df_log_diff,label="1st Order Log Diff")
 plt.legend()
 plt.show()
 
-df_diff_weighted_avg.dropna(inplace=True)
-test_stationary(df_diff_weighted_avg)
+df_log_diff.dropna(inplace=True)
+test_stationary(df_log_diff)
+
+df_new = df_log_diff - df_diff
+
+plt.plot(figsize=(10,6))
+plt.plot(df,label="original")
+plt.plot(df_diff,label="first order")
+plt.plot(df_diff2,label="Second Order")
+plt.plot(df_log_diff,label="First Order Log")
+plt.plot(df_new,label="new")
+plt.legend()
+plt.show()
+
+df_new.dropna(inplace=True)
+test_stationary(df_new)
+
+df_diff_rollingmean = df_diff.rolling(window=30).mean()
+
+
+
+plt.plot(figsize=(10,6))
+plt.plot(df,label="original")
+plt.plot(df_diff,label="first order")
+plt.plot(df_diff2,label="Second Order")
+plt.plot(df_log_diff,label="First Order Log")
+plt.plot(df_new,label="new")
+plt.plot(df_diff_rollingmean,label="Rolling Mean of Log First Order Diff")
+plt.legend()
+plt.show()
+
+
+
+
 
 """ moving seasonal decomp with differncing"""
 
-decomp = seasonal_decompose(df_diff['IBM'],model="additive",period=365)
-decomp.plot().show()
+
+decomp = seasonal_decompose(df_diff,model="additive",period=15)
+
+trend = decomp.trend
+seasonal = decomp.seasonal
+residual = decomp.resid
+
+plt.subplot(211)
+plt.plot(df_diff,label="First-Order Differencing")
+plt.legend(loc="best")
+plt.show()
+
+plt.subplot(212)
+plt.plot(trend,label="Trend")
+plt.legend(loc="best")
+plt.show()
+
+
+
+df_decomp = residual
+residual.dropna(inplace=True)
+
+
+decomp_mean = df_decomp.rolling(window=30).mean()
+decomp_std = df_decomp.rolling(window=30).std()
+
+plt.figure(figsize=(10,6))
+plt.plot(df_decomp,label="Orginal Decomposed")
+plt.plot(decomp_mean,label="Rolling Mean Decomp")
+plt.plot(decomp_std,label="Rolling STD Decomp")
+plt.legend()
+plt.show()
+
+
+
+model1 = ARIMA(df,order=(1,2,0)).fit()
+plt.plot(df,color="blue")
+plt.plot(model1.fittedvalues, color='red')
+plt.show()
+
+
+model2 = ARIMA(df,order=(1,2,0)).fit()
+plt.figure(figsize=(10,6))
+plt.plot(df_diff,color="black")
+plt.plot(model2.fittedvalues,color="red")
+plt.show()
+
+
+
+
+"""Arima is outdated. Break out the neural networks and regular ML models"""
 
 
 """ Forecast Using XGBboost and other regular ML models first"""
@@ -247,4 +365,5 @@ plt.ylabel('Price')
 plt.legend()
 plt.tight_layout()
 plt.show()
+
 
